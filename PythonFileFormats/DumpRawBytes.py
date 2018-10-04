@@ -12,18 +12,32 @@ filename = sys.argv[1]
 print("Reading bytes from file:", filename)
 print()
 
+bytesDisplayedPerRow = 20
+
 try :
     bytecount = 0
     with open(filename, "rb") as f:
-        bytes = f.read(1)
+        bytes = f.read(bytesDisplayedPerRow)
         while bytes:
-            # Print out as hex and decimal and as a printable ASCII character
-            s = ""
-            if bytes[0] >= 32 and bytes[0] < 127:
-                s = str(bytes).replace("b'", "").replace("'", "")   # Convert from "b'x'"" to just "x"
-            print("{0:07d} : 0x{1:02x}  {1:3d}  {2:s}".format(bytecount, bytes[0], s))
-            bytecount += 1
-            bytes = f.read(1)
+            row="{0:07d} :".format(bytecount)
+            chars=""
+            for b in bytes :
+                c = " "
+                if b >= 32 and b < 128:
+                    c = chr(b)
+                elif b >= 128+32 and b < 128+128:
+                    c = chr(b)
+                chars += c
+                row += "  {0:02x}".format(b)
+            # Pad out last row if not filled
+            if len(bytes) < bytesDisplayedPerRow :
+                for i in range(0, bytesDisplayedPerRow - len(bytes)) :
+                    row += "    "
+            print(row + "      " + chars)
+            bytecount += len(bytes)
+            bytes = f.read(bytesDisplayedPerRow)
+
+            
 except OSError as err:
     print()
     print("*** Error accessing file:", filename, " : ", err)
