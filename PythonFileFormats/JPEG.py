@@ -214,8 +214,10 @@ bytecount = 0
 aborted = False
 SOIFound = False
 EOIFound = False
-segments = []
-dataList = []
+
+# Lists with an entry for each segment found. 
+segmentsInfo = []
+segmentsData = []
 
 with open(filename, "rb") as f:
 
@@ -243,20 +245,17 @@ with open(filename, "rb") as f:
         # print("Read marker bytes ", bytes, " at ", bytecount)
                 
         segmentInfo = {}
-        segments.append(segmentInfo)
+        segmentData = bytearray(0)
         segmentInfo['marker'] = bytes[1]
         segmentInfo['markerOffset'] = bytecount
         segmentInfo['segmentOffset'] = bytecount+2
-        segmentData = bytearray(0)
-
         bytecount += 2
 
-        # Next 2 bytes can sometimes have already been read while working through a segment
-        skipnextread = False    
+        # Clear out the array holding the marker bytes. If it's still empty at the end of the loop, we'll read some more. If it's not empty,
+        # then segment processing has already read the next 2 bytes for us.
+        bytes = bytearray(0)
         
-        # ???? Check that SOI is first
-        
-        # No switch statement in Python!
+        # NB No switch statement in Python!
         if markerByteDetail == 0xD8 :
             segmentType = 'SOI'
             segmentLength = 0
@@ -265,61 +264,62 @@ with open(filename, "rb") as f:
             segmentType = 'EOI'
             segmentLength = 0
             EOIFound = True
-            # Read the rest of the file
-            b = f.read(1)
-            trailingBytes = []
-            while b :
-                trailingBytes.append(b)
-                b = f.read(1)
-            bytecount += len(trailingBytes)
-            # Add a special trailing bytes segment ????
+            break
         elif markerByteDetail >= 0xE0 and markerByteDetail <= 0xEF :
             segmentType = 'APP' + str(markerByteDetail-0xE0)
             segmentLength, segmentData = skipSegment(f)
-            processAppSegement(segmentData)
-            bytecount += segmentLength
+            # processAppSegement(segmentData)
         elif markerByteDetail == 0xDB :
             segmentType = 'DQT'
             segmentLength, segmentData = skipSegment(f)
-            bytecount += segmentLength
         elif markerByteDetail == 0xC4 :
             segmentType = 'DHT'
             segmentLength, segmentData = skipSegment(f)
-            bytecount += segmentLength
         elif markerByteDetail == 0xC0 :
             segmentType = 'SOF0'            
             segmentLength, segmentData = skipSegment(f)
-            bytecount += segmentLength
         elif markerByteDetail == 0xC2 :
             segmentType = 'SOF2'
             segmentLength, segmentData = skipSegment(f)
-            bytecount += segmentLength
         elif markerByteDetail == 0xDA :
             segmentType = 'SOS'
             segmentLength,nextBytes = skipEntropyCodedDataSegment(f)
-            bytecount += segmentLength
-            skipnextread = True
             bytes = nextBytes
         else :
             # DRI ? RSTn ? COM ?
             segmentType = '????'
-            segmentLength = -1
-            print("Other marker")
+            segmentLength = 0
+            print("*** Found unhandled segment marker:", bytes, " at: ", bytecount-2)
+            aborted = True
+            break
 
         segmentInfo['type'] = segmentType
         segmentInfo['length'] = segmentLength
+        segmentsInfo.append(segmentInfo)
+        segmentsData.append(segmentData)
+        bytecount += segmentLength
 
-        dataList.append(segmentData)
-
-        if not skipnextread :
+        if len(bytes) == 0 :
             bytes = f.read(2)
+
+    # End of main read loop. If we exited because we found the EOI marker, read any remaining
+    # bytes in the file.
+    if EOIFound :
+        b = f.read(1)
+        trailingBytes = []
+        while b :
+            trailingBytes.append(b)
+            b = f.read(1)
+        bytecount += len(trailingBytes)            
+
+# Summarise what we've found
 
 if not aborted :
     print("Read all bytes:", bytecount, "bytes")
 else :
     print("Aborted read")
 
-zipped = zip(segments, dataList)
+zipped = zip(segmentsInfo, segmentsData)
 for s,d in zipped :
     print(s)
     if s['type'][0:3] == "APP" :
