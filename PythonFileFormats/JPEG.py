@@ -7,49 +7,7 @@ if len(sys.argv) == 1 :
 
 filename = sys.argv[1]
 
-
-def skipSegment(f) :
-    lenbytes = f.read(2)
-    segmentlength = lenbytes[0] * 256 + lenbytes[1]
-    # print(".. segment of length", segmentlength, "..")
-    segmentbytes = f.read(segmentlength-2)  # Length of segment includes the two length bytes already read
-    return segmentlength, segmentbytes
-
-# Genuine <FF> bytes within the segment have a <00> byte 'stuffed' after them. Any <FF>
-# that is not followed by <00> indicates that the end of the segment has been reached.
-# Pass back an array containing the <FF> and non-<00> bytes already read from the file
-# beyond the end of the segment, so that the caller can work out what they mean.
-def skipEntropyCodedDataSegment(f) :
-    segmentLength = 0
-    dataBytes = f.read(1)
-    while dataBytes :
-        dataByte = dataBytes[0]
-        if dataByte != 0xFF :       # Normal data            
-            segmentLength += 1
-        else :                      
-            # an <FF> - is it the start of the next segment, or does a following <00> indicate it is true data ?
-            dataBytes = f.read(1)
-            dataByte = dataBytes[0]
-            if dataByte == 0x00 :
-                # Stuffing, add the <FF> and <00> bytes to the segment length count
-                segmentLength += 2
-            else :
-                # The <FF> is not part of the data, it is the start of the next segment
-                alreadyReadBytes = bytearray(2)
-                alreadyReadBytes[0] = 0xFF
-                alreadyReadBytes[1] = dataByte
-                break
-        dataBytes = f.read(1)
-
-    if dataBytes :
-        #print(".. skipEntropy returning ", segmentLength, alreadyReadBytes)
-        return segmentLength, alreadyReadBytes
-    else :
-        #print(".. skipEntropy returning after all read", segmentLength)
-        return segmentLength, bytearray(0)
-
 def handleIFDElement(n, ifd, segment, byteAlignment) :
-
     embeddedIFDOffset = (0,0)
 
     tagNo = ifd[0:2]
@@ -205,6 +163,61 @@ def processAppSegement(segment) :
     else :
         print("Segment doesn't start as expected - not an EXIF or JFIF")
 
+##
+###########################################################################
+##
+
+# Read the bytes related to a data segment which consists of 
+# - two bytes (big-endian) to indicate the length l in bytes of this segment (including these two bytes)
+# - the data bytes, l-2 of them
+# ???? Check for reads returning the expected number of bytes
+def readDataSegment(f) :
+    lenBytes = f.read(2)
+    segmentLength = int.from_bytes(lenBytes, signed=False, byteorder='big')
+    segmentBytes = f.read(segmentLength-2)
+    return segmentLength, segmentBytes
+
+# 'Entropy coded' data segments are laid out differently
+# - no initial length bytes
+# - just data bytes
+# - which may include <FF> data bytes. These are 'stuffed' with a trailing <00> byte to allow
+#   genuine <FF> data bytes to be distinguished from the '<FF><markerbyte>' sequence which starts
+#   the segment following this one.
+# - consequently we can only detect the end of the segment by reading beyond it to find the first
+#   <FF><non-00> 2-byte sequence, which we return to allow processing of the subsequent segment by the caller.
+# ???? Check for reads returning the expected number of bytes 
+def readEntropyCodedDataSegment(f) :
+    segmentLength = 0
+    dataBytes = f.read(1)
+    segmentData = []
+    nextSegmentMarkerBytes = bytearray(0)
+    while dataBytes :
+        dataByte = dataBytes[0]
+        if dataByte != 0xFF :       # Normal data            
+            segmentLength += 1
+            segmentData.append(dataByte)
+        else :  # an <FF> - is it the start of the next segment, or does a following <00> indicate it is true data ?
+            nextDataBytes = f.read(1)
+            nextDataByte = nextDataBytes[0]
+            if nextDataByte == 0x00 :
+                # Stuffing, add the <FF> and <00> bytes to the segment length count and segment data 
+                # ???? Or remove the stuffing here ?
+                segmentLength += 2
+                segmentData.append(dataByte)
+                segmentData.append(nextDataByte)
+            else :
+                # The <FF> is not part of the data, it is the start of the next segment
+                nextSegmentMarkerBytes = bytearray(2)
+                nextSegmentMarkerBytes[0] = 0xFF
+                nextSegmentMarkerBytes[1] = nextDataByte
+                break
+        dataBytes = f.read(1)
+
+    return segmentLength, segmentData, nextSegmentMarkerBytes
+    
+##
+###########################################################################
+##
 
 print("Reading from:", filename)
 
@@ -266,24 +279,24 @@ with open(filename, "rb") as f:
             EOIFound = True
         elif markerByteDetail >= 0xE0 and markerByteDetail <= 0xEF :
             segmentType = 'APP' + str(markerByteDetail-0xE0)
-            segmentLength, segmentData = skipSegment(f)
+            segmentLength, segmentData = readDataSegment(f)
             appSegmentIdentifier = getAppSegmentIdentifier(segmentData)
             #processAppSegement(segmentData)
         elif markerByteDetail == 0xDB :
             segmentType = 'DQT'
-            segmentLength, segmentData = skipSegment(f)
+            segmentLength, segmentData = readDataSegment(f)
         elif markerByteDetail == 0xC4 :
             segmentType = 'DHT'
-            segmentLength, segmentData = skipSegment(f)
+            segmentLength, segmentData = readDataSegment(f)
         elif markerByteDetail == 0xC0 :
             segmentType = 'SOF0'            
-            segmentLength, segmentData = skipSegment(f)
+            segmentLength, segmentData = readDataSegment(f)
         elif markerByteDetail == 0xC2 :
             segmentType = 'SOF2'
-            segmentLength, segmentData = skipSegment(f)
+            segmentLength, segmentData = readDataSegment(f)
         elif markerByteDetail == 0xDA :
             segmentType = 'SOS'
-            segmentLength,nextBytes = skipEntropyCodedDataSegment(f)
+            segmentLength, segmentData, nextBytes = readEntropyCodedDataSegment(f)
             bytes = nextBytes
         else :
             # DRI ? RSTn ? COM ?
@@ -320,15 +333,15 @@ with open(filename, "rb") as f:
 
 # Summarise what we've found
 
-if not aborted :
-    print("Read all bytes:", bytecount, "bytes")
-else :
-    print("Aborted read")
-
 zipped = zip(segmentsInfo, segmentsData)
 for s,d in zipped :
     print(s)
 
-if trailingBytes :
-    print()
+if EOIFound and trailingBytes :
     print("Found", len(trailingBytes), "unknown bytes after EOI marker:", *trailingBytes[0:10], "...")
+
+if not aborted :
+    print("Read all bytes:", bytecount, "bytes")
+else :
+    print("*** Aborted read")
+
