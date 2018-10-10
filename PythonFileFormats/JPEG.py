@@ -123,22 +123,12 @@ def handleIFDElement(n, ifd, segment, byteAlignment) :
     return embeddedIFDOffset
 
 # MM version
-def bytesToInt(bytes, byteAlignment) :
-    #print(byteAlignment)
-    #i = 0
-#    orderedbytes = bytes
-#    if byteAlignment == "II" :
-#        orderedbytes = bytes[::-1]
-
+def bytesToInt(bytes, byteAlignment) :    
     alignment = 'big'
     if byteAlignment == "II" :
         alignment = 'little'
 
     i = int.from_bytes(bytes, signed=False, byteorder=alignment)
-
-#    for byte in orderedbytes:
-#        #print("byte is ", byte, " within bytes:", bytes)
-#        i = i*256 + byte
     return i
 
 def bytesToASCIIString(bytes) :
@@ -173,6 +163,14 @@ def handleIFD(seg, nextIDOffset, byteAlignment) :
         print("nextIFDOffset:", nextIFDOffset)
         return nextIFDOffset, embeddedIFDOffsets
 
+# Extract first n bytes up to a 0 byte, expect this to be an ASCII string identifying the type of App Segment, e.g. "Exif"
+def getAppSegmentIdentifier(segmentData) :
+    n = 0
+    while n < len(segmentData) and segmentData[n] != 0x00 :
+        n += 1
+
+    return bytesToASCIIString(segmentData[0:n])
+
 def processAppSegement(segment) :
     #print("..", segment[0:1000])
     # First four bytes = Exif
@@ -203,7 +201,7 @@ def processAppSegement(segment) :
 
         print("No more IFDs in this segment")
     elif (segment[0] == JFIF.encode()[0] and segment[1] == JFIF.encode()[1] and segment[2] == JFIF.encode()[2] and segment[3] == JFIF.encode()[3] and segment[4] == 0) :
-        print("Found JFIF segment .. details ignored")
+        print("Found JFIF segment .. details ignored:", segment )
     else :
         print("Segment doesn't start as expected - not an EXIF or JFIF")
 
@@ -255,6 +253,8 @@ with open(filename, "rb") as f:
         # then segment processing has already read the next 2 bytes for us.
         bytes = bytearray(0)
         
+        appSegmentIdentifier = ""
+
         # NB No switch statement in Python!
         if markerByteDetail == 0xD8 :
             segmentType = 'SOI'
@@ -264,11 +264,11 @@ with open(filename, "rb") as f:
             segmentType = 'EOI'
             segmentLength = 0
             EOIFound = True
-            break
         elif markerByteDetail >= 0xE0 and markerByteDetail <= 0xEF :
             segmentType = 'APP' + str(markerByteDetail-0xE0)
             segmentLength, segmentData = skipSegment(f)
-            # processAppSegement(segmentData)
+            appSegmentIdentifier = getAppSegmentIdentifier(segmentData)
+            #processAppSegement(segmentData)
         elif markerByteDetail == 0xDB :
             segmentType = 'DQT'
             segmentLength, segmentData = skipSegment(f)
@@ -293,11 +293,17 @@ with open(filename, "rb") as f:
             aborted = True
             break
 
-        segmentInfo['type'] = segmentType
         segmentInfo['length'] = segmentLength
+        segmentInfo['type'] = segmentType
+        if appSegmentIdentifier :
+            segmentInfo['app'] = appSegmentIdentifier
+
         segmentsInfo.append(segmentInfo)
         segmentsData.append(segmentData)
         bytecount += segmentLength
+
+        if EOIFound :
+            break
 
         if len(bytes) == 0 :
             bytes = f.read(2)
@@ -322,8 +328,6 @@ else :
 zipped = zip(segmentsInfo, segmentsData)
 for s,d in zipped :
     print(s)
-    if s['type'][0:3] == "APP" :
-        print("  ", d[0:20])
 
 if trailingBytes :
     print()
