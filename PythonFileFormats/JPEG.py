@@ -15,8 +15,10 @@ def bytesToInt(bytes, alignmentIndicator, signed=False) :
     return i
 
 def bytesToASCIIString(bytes) :
-    s = bytes.decode()
-    return s
+    # Remove trailing null used in IFD string elements
+    if bytes[-1] == 0x00 :
+        bytes = bytes[0:len(bytes)-1]
+    return bytes.decode()
 
 # Extract first n bytes up to a 0 byte, expect this to be an ASCII string identifying the type of App Segment, e.g. "Exif"
 def getAppSegmentIdentifier(segment) :
@@ -83,7 +85,7 @@ def readEntropyCodedDataSegment(f) :
 #
 
 #http://gvsoft.no-ip.org/exif/exif-explanation.html
-def processExifSegment(dict, info, segment) :
+def processExifSegment(info, segment) :
 
     # Expect first six bytes to be 'Exif\x00\x00'
     ExifIdentifierLength = 6
@@ -106,30 +108,71 @@ def processExifSegment(dict, info, segment) :
     firstIFDOffset = bytesToInt(TIFFHeader[4:8], byteAlignmentIndicator) 
     #print(firstIFDOffset)
 
-    # Then a chained set of IFD blocks, which sometimes contain embedded pointers to further specialised IFD blocks, 
-    # which we record and look at after processing the main chain of IFDs.
-    embeddedIFDOffsets = []     # List of (IFD type, offset) tuples
     nextIFDOffset = firstIFDOffset
     IFDCount = 0
+
+    # Dictionary to record each IFD, keyed an IFD name, storing the detailed IFD dictionary as the value
+    dict = {}
+
     while nextIFDOffset != 0 :
+        IFDname = "IFD" + str(IFDCount)
+        #print("Handling main chain IFD:", IFDname)
+        IFDentries, nextIFDOffset = processIFD(TIFF, nextIFDOffset, byteAlignmentIndicator)
+        dict[IFDname] = IFDentries
         IFDCount += 1
-        print("Handling main chain IFD:", IFDCount)
-        entries, nextIFDOffset = processIFD(TIFF, nextIFDOffset, byteAlignmentIndicator)
-        # Look for IFD elements known to indicate an embedded IFD offset
-        for entry in entries:
-            if entry['tag'] in [34853, 34665] :
-                embeddedIFDOffsets.append( (entry['tag'], entry['value']) )
-            dict[entry['tag']] = entry
-            # ???? Can a tag be repeated across the set of IFDs ? If so what to do - put them in a list ?
-            # ???? NB Issue affecrs embeddedIFDOffsets method too, perhaps handle in there as well
 
-    if len(embeddedIFDOffsets) > 0 :
-        print("Found embedded IFDs within this IFD:", embeddedIFDOffsets)
-        for (id, os) in embeddedIFDOffsets :
-            print("Looking at embedded IFD:", id)
-            # ???? Need to store results. Do we ever expect a non-zero next-in-chain value ?
-            processIFD(TIFF, os, byteAlignmentIndicator)
+    # Search for embedded IFD elements within the IFDs we've already identified. Assume only one embedded IFD
+    # of each type. IFDs can be nested by more than one level, so keep going as long as we find a new IFDs
 
+    continueLooking = True
+    while(continueLooking) :
+        newIFDinfo = []
+        for knownIFDname, d in dict.items() :            
+            for embeddedIFDtag, embeddedIFDname in knownEmbeddedIFDs().items() :
+                # This will re-search all IFDs each time through the loop, not just ones we've added last time
+                # around, so ignore embedded IFDs we've already picked up. (Assuming the only exist in one place.)
+                if embeddedIFDtag in d and embeddedIFDname not in dict:
+                    IFDname = embeddedIFDname
+                    #print("Handling embedded IFD:", IFDname)
+                    embeddedIFDOffset = d[embeddedIFDtag]['value']
+                    embeddedIFDentries, nextIFDOffset = processIFD(TIFF, embeddedIFDOffset, byteAlignmentIndicator)
+                    # Put info about embedded IFD onto a list, we can't put it directly in the main dictionary
+                    # while looping over the dictionary,
+                    newIFDinfo.append( (embeddedIFDname, embeddedIFDentries) )
+                    if nextIFDOffset != 0000 :
+                        print("*** - unexpected next IFD offset in IFD", embeddedIFDname)
+        # Can now add the new IFD(s) to the main dictionary
+        for additionalIFDname, IFDentries in newIFDinfo :
+            dict[additionalIFDname] = IFDentries
+        continueLooking = len(newIFDinfo) > 0
+
+    return dict
+
+def knownEmbeddedIFDs() :
+    return { 
+        34665 : "Exif",
+        34853 : "GPS",
+        40965 : "Interoperability"
+    }
+
+# Add an IFD element (itself a dictionary) to an IFD-level dictionary. If the element's tag does not already exist in the
+# IFD dictionary just add the element. If it does, add the element to a list associated with the tag instead.
+def addToIFDDictionary (IFDdict, element) :
+    tag = element['tag']
+    if tag not in IFDdict :
+        IFDdict[tag] = element
+    else :
+        currentValue = IFDdict[tag]
+        #print("tag already in dict:", tag, type(currentValue))
+        if type(currentValue) is dict :
+            # Convert to a list of elements
+            IFDdict['tag'] = [currentValue, element]
+            #print("... converted to a list: ", IFDdict['tag'])
+        elif type(currentValue) is list :
+            # Already multiple entries for this tag - append to it
+            IFDdict['tag'].append(element)
+            #print("... appended to existing list: ", IFDdict['tag'])
+        
 # Each IFD (Image File Directory) consists of:
 # - a two-byte int giving the number of directory elements
 # - the 12-byte elements
@@ -137,7 +180,7 @@ def processExifSegment(dict, info, segment) :
 def processIFD(TIFF, IFDOffset, byteAlignmentIndicator) :
 
         # List of dictionaries for output, one per IFD element
-        IFDEntries = [] 
+        IFDEntries = {}
 
         IFDBytes = TIFF[IFDOffset:]
         # 2 byte value indicating the number of elements
@@ -150,7 +193,7 @@ def processIFD(TIFF, IFDOffset, byteAlignmentIndicator) :
         for n in range (0, elementCount) :
             thisElementBytes = elementBytes[elementSize*n : elementSize*(n+1)]
             element = processIFDElement(n, thisElementBytes, TIFF, byteAlignmentIndicator)
-            IFDEntries.append(element)
+            addToIFDDictionary (IFDEntries, element)
     
         # The final four bytes are either an offset to the next IFD in the chain, or 0000 if no more IFDs in this chain
         nextOffsetBytesPosition = 2+elementSize*elementCount
@@ -170,7 +213,7 @@ def processIFDElement(elementNo, element, TIFF, byteAlignmentIndicator) :
     
     tag = bytesToInt(element[0:2], byteAlignmentIndicator)
     dataFormat = bytesToInt(element[2:4], byteAlignmentIndicator)
-    numComponents = bytesToInt(element[4:8], byteAlignmentIndicator)
+    componentCount = bytesToInt(element[4:8], byteAlignmentIndicator)
     dataBytes = element[8:12]
     dataBytesAsOffset = bytesToInt(dataBytes, byteAlignmentIndicator)
 
@@ -178,98 +221,93 @@ def processIFDElement(elementNo, element, TIFF, byteAlignmentIndicator) :
     dataValue = "-"
     # 1 = unsigned byte, 1 byte per component, not implemented
     if dataFormat == 1 :
-        if numComponents == 1 :
+        if componentCount == 1 :
             dataValue = bytesToInt(dataBytes[0:1], byteAlignmentIndicator)
-        elif numComponents <= 4:
+        elif componentCount <= 4:
             dataValue = []
-            for i in range (0, numComponents) :
+            for i in range (0, componentCount) :
                 dataValue.append(bytesToInt(dataBytes[i:i+1], byteAlignmentIndicator))
-        elif numComponents > 4 :
+        elif componentCount > 4 :
             dataValue = []
-            for i in range (0, numComponents) :
+            for i in range (0, componentCount) :
                 offset = dataBytesAsOffset + i
                 dataValue.append(bytesToInt(TIFF[offset:offset+1], byteAlignmentIndicator))
-        print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, "(ubyte), num:", numComponents, ", val:", dataValue)
+        #print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, "(ubyte), num:", componentCount, ", val:", dataValue)
     # 2 = ASCII string, 1 byte per character
     elif dataFormat == 2 :
-        if numComponents <= 4:
-            dataValue = bytesToASCIIString(dataBytes[0:numComponents])
+        if componentCount <= 4:
+            dataValue = bytesToASCIIString(dataBytes[0:componentCount])
         else :
-            dataValue = bytesToASCIIString(TIFF[dataBytesAsOffset:dataBytesAsOffset+numComponents])
-        print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, "(String), num:", numComponents, ", val:", dataValue)
+            dataValue = bytesToASCIIString(TIFF[dataBytesAsOffset:dataBytesAsOffset+componentCount])
+        #print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, "(String), num:", componentCount, ", val:", dataValue)
     # 3 = unsigned short, 2 bytes per component
     elif dataFormat == 3 :
-        if numComponents == 1 :
+        if componentCount == 1 :
             dataValue = bytesToInt(dataBytes[0:2], byteAlignmentIndicator)
-        elif numComponents == 2:
+        elif componentCount == 2:
             dataValue = [ bytesToInt(dataBytes[0:2], byteAlignmentIndicator), bytesToInt(dataBytes[2:4], byteAlignmentIndicator) ]
-        elif numComponents > 2 :
+        elif componentCount > 2 :
             dataValue = []
-            for i in range (0, numComponents) :
+            for i in range (0, componentCount) :
                 offset = dataBytesAsOffset + i*2
                 dataValue.append(bytesToInt(TIFF[offset:offset+2], byteAlignmentIndicator))
-        print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, "(ushort), num:", numComponents, ", val:", dataValue)
+        #print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, "(ushort), num:", componentCount, ", val:", dataValue)
     # 4 = unsigned long, 4 bytes per component
     elif dataFormat in [4, 9] :
         signed = dataFormat == 9
         desc = "(ulong)" if dataFormat == 4 else "(long)"
-        if numComponents == 1 :
+        if componentCount == 1 :
             dataValue = bytesToInt(dataBytes[0:4], byteAlignmentIndicator, signed)
-        elif numComponents > 1 :
+        elif componentCount > 1 :
             dataValue = []
-            for i in range (0, numComponents) :
+            for i in range (0, componentCount) :
                 offset = dataBytesAsOffset + i*4
                 dataValue.append(bytesToInt(TIFF[offset:offset+2], byteAlignmentIndicator, signed))
-        print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, desc, ", num:", numComponents, ", val:", dataValue)
+        #print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, desc, ", num:", componentCount, ", val:", dataValue)
     elif dataFormat in [5, 10] :
         signed = dataFormat == 10
         desc = "(urational)" if dataFormat == 5 else "(rational)"
         values = []
-        for i in range (0, numComponents) :
+        for i in range (0, componentCount) :
             offset = dataBytesAsOffset + i*8
             numerator = bytesToInt(TIFF[offset:offset+4], byteAlignmentIndicator, signed)
             denominator = bytesToInt(TIFF[offset+4:offset+8], byteAlignmentIndicator, signed)
             values.append( (numerator, denominator) )
-        if numComponents == 1 :
+        if componentCount == 1 :
             dataValue = values[0]
         else :
             dataValue = values
-        print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, desc, ", num:", numComponents, ", val:", dataValue)
-    # 7 = General purpose undefined. 1 byte per component
+        #print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, desc, ", num:", componentCount, ", val:", dataValue)
+    # 7 = General purpose 'undefined' type. 1 byte per component
     elif dataFormat == 7 :
-        if numComponents == 1 :
+        if componentCount == 1 :
             dataValue = dataBytes[0:1]
-        elif numComponents <= 4:
+        elif componentCount <= 4:
             dataValue = []
-            for i in range (0, numComponents) :
+            for i in range (0, componentCount) :
                 dataValue.append(dataBytes[i:i+1])
-        elif numComponents > 4 :
+        elif componentCount > 4 :
             dataValue = []
-            for i in range (0, numComponents) :
+            for i in range (0, componentCount) :
                 offset = dataBytesAsOffset + i
                 dataValue.append(TIFF[offset:offset+1])
-        print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, "(undefined), num:", numComponents, ", val:", dataValue[0:12])        
+        #print(".. IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, "(undefined), num:", componentCount, ", val:", dataValue[0:12])        
     else :
         implemented = False
 
-    # ???? Remove prints
-    # Fill in dictionary some more, allow for repeated values ?
-    # Caller to handle different IFDs vs repeated values in different IFDs ????
-    # NB Thumbnail vs full image ????
-
-    # Structure to allow easy look by tag ?
-
+    # Put values for the element into a dictionary and return it
     entry = {}
     entry['tag'] = tag
+    entry['index'] = elementNo
+    entry['format'] = dataFormat
+    entry['count'] = componentCount
     entry['value'] = dataValue
 
-    if implemented :
-        pass
-    else :
-        print("*** IFD data type not implemented: IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, ", num:", numComponents, ", bytes:", dataBytes)
-    
-    return entry
+    if not implemented :
+        entry['unhandled'] = True
+        print("*** IFD data type not implemented: IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, ", num:", componentCount, ", bytes:", dataBytes)
 
+    return entry
 
 #
 #############################################
@@ -419,7 +457,10 @@ def processFile(filename) :
             appName = info['app']
             dict = {}
             if appName == "Exif" :
-                processExifSegment(dict, info, data)
+                ExifDict = processExifSegment(info, data)
+                print("Extracted these IFDs from the Exif segment:")
+                for n, d in ExifDict.items() :
+                    print("- ", n, ":", len(d), "item(s)")
             elif appName == "JFIF" :
                 processJFIFSegment(dict, info, data)
             elif appName == "ICC_PROFILE" :
