@@ -482,6 +482,16 @@ def summariseTags(allTags) :
     # Where was the image (photo) produced ?
     if 'GPS' in allTags :
         GPSTags = allTags['GPS']
+
+        # Normally 'GPS' but CELLID also seen, but didn't seem to be an accurate position, or give an altitude
+        fromGPS = False
+        if 27 in GPSTags:
+            processingMethod = GPSTags[27]['value']
+            if processingMethod != "GPS" :
+                print("*** Processing method is not GPS:", processingMethod)
+            else :
+                fromGPS = True
+
         NS = None
         latitude = None
         EW = None
@@ -500,12 +510,19 @@ def summariseTags(allTags) :
             print("Latitude:", sLatitude, " = ", nLatitude)
             sLongitude, nLongitude = latLongAsStringNumber(EW, longitude)
             print("Longitude:", sLongitude, " = ", nLongitude)
-            print("Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C18".format(nLatitude, nLongitude))  # 18 = zoom level ? %2C = comma
+            zoomLevel = 16
+            print("OSMaps Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C{2:d}".format(nLatitude, nLongitude, zoomLevel))  # No Pn
+            # Google Maps URL API doesn't seem to allow a Pin to be displayed at the lat/long coordinates at the same time as specifying a zoom and a map type
+            print("Google Link:", "https://www.google.com/maps/%40?api=1&map_action=map&center={0:f}%2C{1:f}&zoom={2:d}&basemap=satellite".format(nLatitude, nLongitude, zoomLevel)) # No pin
+            print("Google Link with Pin:", "https://www.google.com/maps/search/?api=1&query={0:f}%2C{1:f}&zoom=10".format(nLatitude, nLongitude))   # Pin
 
-        if 6 in GPSTags :
+        if fromGPS and 6 in GPSTags :
             altitudeTuple = GPSTags[6]['value']
             altitude = altitudeTuple[0]/altitudeTuple[1]
             print("Rough Altitude:", "{0:.0f} m".format(round(altitude, -2)))
+
+        # for k,d in GPSTags.items() :
+        #    print(k, d)
 
     if 'IFD0' in allTags :
         IFD0Tags = allTags['IFD0']
