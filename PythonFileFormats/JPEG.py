@@ -313,11 +313,229 @@ def processIFDElement(elementNo, element, TIFF, byteAlignmentIndicator) :
 #############################################
 #
 
-def processJFIFSegment(dict, info, data) :
-    print("- to do : JFIF")
+def processJFIFSegment(info, segment) :
+    
+    JFIF = "JFIF"
+    if not (segment[0] == JFIF.encode()[0] and segment[1] == JFIF.encode()[1] and segment[2] == JFIF.encode()[2] and segment[3] == JFIF.encode()[3] and segment[4] == 0) :
+        print("*** JFIF segment header format not as expected:", segment[0:10])
+        return
 
-def processICCProfileSegment(dict, info, data) :
-    print("- to do : ICC_Profile")
+    if len(segment) < 14 :
+        print("*** JFIF segment header size not as expected:", len(segment))
+        return
+
+    majorversion = segment[5]
+    minorversion = segment[6]
+    units = segment[7]
+    Xdensity = bytesToInt(segment[8:10], 'big')
+    Ydensity = bytesToInt(segment[10:12], 'big')
+    Xthumbnail = segment[12]
+    Ythumbnail = segment[13]
+
+    if len(segment) > 14:
+        print("*** JFIF segment header - ignoring data beyond first 14 bytes", len(segment))
+
+    dict = {}
+    dict['majorversion'] = majorversion
+    dict['minorversion'] = minorversion
+    dict['units'] = units
+    dict['Xdensity'] = Xdensity
+    dict['Ydensity'] = Ydensity
+    dict['Xthumbnail'] = Xthumbnail
+    dict['Ythumbnail'] = Ythumbnail
+
+    return dict
+
+#
+#############################################
+#
+
+def processICCProfileSegment(info, segment) :
+
+    # http://www.color.org/specification/ICC1v43_2010-12.pdf 
+    # Appendix B.4 explains embedding mechanism for JPEGs, including:
+    # - the segment starts with "ICC_PROFILE" and then a NULL byte
+    # - followed by two bytes which indicate 'chunking', allowing the ICC Profile info to be split over more than one
+    #   JPEG segment if necessary.
+    #   - the first byte is the current chunk number
+    #   - the second byte is the total number of chunks
+    #   So both will be '1' if the ICC Profile info fits into a single JPEG APP segment
+    #   And the next 128 bytes are the Profile header info - see 7.2
+
+    ICC_ProfileString = "ICC_PROFILE"    
+    thisChunkNo = segment[len(ICC_ProfileString)+1]
+    totalChunks = segment[len(ICC_ProfileString)+2]
+
+    # ???? Check profile string is present 
+
+    if not (thisChunkNo == 1 and totalChunks == 1) :
+        print("*** ICC profile has more than one chunk:", thisChunkNo, totalChunks)
+    
+    mainSegmentOffset = len(ICC_ProfileString)+3 
+    mainSegment = segment[mainSegmentOffset:]
+    header = mainSegment[mainSegmentOffset:mainSegmentOffset+128]
+
+    # Pull out fields from the header
+    profileSize = bytesToInt(header[0:4], 'big')
+    preferredCMMtype = bytesToInt(header[4:8], 'big')
+    profileVersion = header[8:12]
+    profileDeviceClass = header[12:16]
+    colourSpace = header[16:20]
+    profileConnectionSpace = header[20:24]
+    profileCreationDate = header[24:36]
+    acsp = header[36:40]
+    primaryPlatform= header[40:44]
+    profileFlags = header[44:48]
+    deviceManufacturer = header[48:52]
+    deviceModel = header[52:56]
+    deviceAttributes = header[56:64]
+    renderingIntent = header[64:68]
+    nCIEXYZIlluminant = header[68:80]
+    profileCreator = header[80:84]
+    profileID = header[84:100]
+    reservedBytes = header[100:128]
+
+    printOut = False
+    if printOut :
+        print("size", profileSize)
+        print("preferred type", preferredCMMtype)
+        print("version", profileVersion)
+        print("device class", profileDeviceClass)
+        print("colour space", colourSpace)
+        print("PCS", profileConnectionSpace)
+        print("profile date", profileCreationDate)
+        print("- y", bytesToInt(profileCreationDate[0:2], 'big'))
+        print("- m", bytesToInt(profileCreationDate[2:4], 'big'))
+        print("- d", bytesToInt(profileCreationDate[4:6], 'big'))
+        print("- h", bytesToInt(profileCreationDate[6:8], 'big'))
+        print("- m", bytesToInt(profileCreationDate[8:10], 'big'))
+        print("- s", bytesToInt(profileCreationDate[10:12], 'big'))
+        print("acsp", acsp)
+        print("platform", primaryPlatform)
+        print("flags", profileFlags)
+        print("manufacturer", deviceManufacturer)
+        print("model", deviceModel)
+        print("attributes", deviceAttributes)
+        print("intent", renderingIntent)
+        print("CIEXYZ illuminant", nCIEXYZIlluminant, nCIEXYZIlluminant[0:4], nCIEXYZIlluminant[4:8], nCIEXYZIlluminant[8:12])
+        print("creator", profileCreator)
+        print("profileID", profileID)
+        print("reserved", reservedBytes)
+
+    # Tag table consists of a 4-byte count 'n' and then n 12-byte entries:
+    # - 0-3 = tag signature
+    # - 4-7 = offset to tag data element
+    # - 8 - 11 = size in bytes of tag data element
+    tagTableOffset = 128
+    
+    tagTableLength = bytesToInt(mainSegment[tagTableOffset:tagTableOffset+4], 'big')
+
+    for n in range(0, tagTableLength) :
+        tagEntryOffset = tagTableOffset+4 + 12*n
+        tagSignature = bytesToASCIIString(mainSegment[tagEntryOffset+0:tagEntryOffset+4])
+        tagDataOffset = bytesToInt(mainSegment[tagEntryOffset+4:tagEntryOffset+8], 'big')
+        tagDataSize = bytesToInt(mainSegment[tagEntryOffset+8:tagEntryOffset+12], 'big')
+        tagData = mainSegment[tagDataOffset:tagDataOffset+tagDataSize]
+        if printOut :
+            print("Tag", n, tagSignature, tagDataOffset, tagDataSize)
+            print(".. ", tagData[0:150])
+    
+        # Each of these tag data items has its own structure for potential further examination ...
+
+    # Nothing found so far is general metadata about the image / device, all detailed image stuff. So
+    # don't add to the dictionary for now
+    dict = {}
+    return dict
+
+##
+###########################################################################
+##
+
+def latLongAsStringNumber(NSEW, latLongTuples) :
+    s = ""
+    n = 0
+    # Check format
+    if not NSEW in ["N", "S", "E", "W"] :
+        print("*** Unexpected direction indicator:", NSEW)
+    elif len(latLongTuples) != 3 :
+        print("*** Unexpected latitude/longitude value:", latLongTuples)
+    elif (latLongTuples[0][1] != 1) or (latLongTuples[1][1] != 1) :
+        print("*** Unexpected latitude/longitude value:", latLongTuples)
+    else :
+        degrees = latLongTuples[0][0] 
+        minutes = latLongTuples[1][0]
+        seconds = latLongTuples[2][0] / latLongTuples[2][1]
+
+        s = "{0:d}° {1:02d}' {2:06.4f}\" {3:s}".format(degrees, minutes, seconds, NSEW)
+
+        multiplier = 1
+        if NSEW in ["W", "S"] :
+            multiplier = -1
+
+        n = (degrees + (minutes / 60.0) + (seconds / 60.0 / 60.0) ) * multiplier
+        return (s,n)
+
+def summariseTags(allTags) :
+
+    print()
+
+    # Where was the image (photo) produced ?
+    if 'GPS' in allTags :
+        GPSTags = allTags['GPS']
+        NS = None
+        latitude = None
+        EW = None
+        longitude = None
+        if 1 in GPSTags :
+            NS = GPSTags[1]['value']
+        if 2 in GPSTags :
+            latitude = GPSTags[2]['value']
+        if 3 in GPSTags :
+            EW = GPSTags[3]['value']
+        if 4 in GPSTags :
+            longitude = GPSTags[4]['value']
+
+        if NS and latitude and EW and longitude :
+            sLatitude, nLatitude = latLongAsStringNumber(NS, latitude)
+            print("Latitude:", sLatitude, " = ", nLatitude)
+            sLongitude, nLongitude = latLongAsStringNumber(EW, longitude)
+            print("Longitude:", sLongitude, " = ", nLongitude)
+            print("Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C18".format(nLatitude, nLongitude))  # 18 = zoom level ? %2C = comma
+
+        if 6 in GPSTags :
+            altitudeTuple = GPSTags[6]['value']
+            altitude = altitudeTuple[0]/altitudeTuple[1]
+            print("Rough Altitude:", "{0:.0f} m".format(round(altitude, -2)))
+
+    if 'IFD0' in allTags :
+        IFD0Tags = allTags['IFD0']
+        #for k,d in IFD0Tags.items() :
+        #    print(k, d)
+
+        if 306 in IFD0Tags :
+            timestamp = IFD0Tags[306]['value']
+            if timestamp[0:4] != "0000" :
+                print("Timestamp:", IFD0Tags[306]['value'], "GMT")
+
+        if 256 in IFD0Tags and 257 in IFD0Tags :
+            print("Size:", IFD0Tags[256]['value'], " x ", IFD0Tags[257]['value'], "pixels")
+        if 271 in IFD0Tags :
+            print("Make:", IFD0Tags[271]['value'])
+
+        # IFD1 = thumbnail
+        # 256, 257, 259, 274, 282, 283, 296, 512, 514
+        # 259 6 = thumbnail uses JPEG compression
+        # 513, 514 = offset/length of thumbnail JPEG
+
+        # Exif segment includes
+        # 33434 Exposure
+        # 33437 F no
+        # 34855 ISO speed
+        # 36867 date/time string
+        # 37377 shutter speed
+        # 37378 aperture
+        # 37385 flash
+        # 37386 focal length mm
 
 ##
 ###########################################################################
@@ -451,23 +669,31 @@ def processFile(filename) :
     else :
         print("*** Aborted read")
 
+    allTags = {}
+
     # Dump out app data segment info
     for info, data in zip(segmentsInfo, segmentsData) :
         if 'app' in info :
             appName = info['app']
-            dict = {}
             if appName == "Exif" :
-                ExifDict = processExifSegment(info, data)
+                Exifdict = processExifSegment(info, data)
                 print("Extracted these IFDs from the Exif segment:")
-                for n, d in ExifDict.items() :
+                for n, d in Exifdict.items() :
                     print("- ", n, ":", len(d), "item(s)")
+                    allTags[n] = d
             elif appName == "JFIF" :
-                processJFIFSegment(dict, info, data)
+                JFIFdict = processJFIFSegment(info, data)
+                print("Extracted JFIF segment data:", len(JFIFdict), "item(s)")
+                allTags['JFIF'] = JFIFdict
             elif appName == "ICC_PROFILE" :
-                processICCProfileSegment(dict, info, data)
+                ICCdict = processICCProfileSegment(info, data)
+                print("Extracted ICC Profile segment data:", len(ICCdict), "item(s)")
+                allTags['ICC'] = ICCdict
             else :
                 print("Not examining", appName, " data segment")
-            #print(dict)
+
+
+    summariseTags(allTags)
 
 #
 ####################################
