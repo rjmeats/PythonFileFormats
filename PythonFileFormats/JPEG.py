@@ -450,7 +450,7 @@ def processICCProfileSegment(info, segment) :
 ###########################################################################
 ##
 
-def latLongAsStringNumber(NSEW, latLongTuples) :
+def latLongAsStringNumber(NSEW, latLongTuples, fromGPS) :
     s = ""
     n = 0
     # Check format
@@ -471,7 +471,10 @@ def latLongAsStringNumber(NSEW, latLongTuples) :
         if NSEW in ["W", "S"] :
             multiplier = -1
 
-        n = (degrees + (minutes / 60.0) + (seconds / 60.0 / 60.0) ) * multiplier
+        # Round to 5 decimal places. 1 degree at equator ~= 75 miles / 110 km, so rounded to about a metre.
+        # But if not from GPS, increase rounding.
+        rounding = 5 if fromGPS else 4
+        n = round((degrees + (minutes / 60.0) + (seconds / 60.0 / 60.0) ) * multiplier, rounding)  
         return (s,n)
 
 def summariseTags(propertiesDict, allTags, verbose) :
@@ -506,19 +509,36 @@ def summariseTags(propertiesDict, allTags, verbose) :
             longitude = GPSTags[4]['value']
 
         if NS and latitude and EW and longitude :
-            sLatitude, nLatitude = latLongAsStringNumber(NS, latitude)
-            sLongitude, nLongitude = latLongAsStringNumber(EW, longitude)
+            sLatitude, nLatitude = latLongAsStringNumber(NS, latitude, fromGPS)
+            sLongitude, nLongitude = latLongAsStringNumber(EW, longitude, fromGPS)
             zoomLevel = 16
             propertiesDict['latitude'] = nLatitude
             propertiesDict['longitude'] = nLongitude
             propertiesDict['fromGPS'] = fromGPS
+            gpinurl = "https://www.google.com/maps/search/?api=1&query={0:f}%2C{1:f}&zoom={2:d}".format(nLatitude, nLongitude, zoomLevel)   # Pin
+            # https://wiki.openstreetmap.org/wiki/Browsing#Sharing_a_link_to_the_maps
+            osmpinurl = "https://www.openstreetmap.org/?&mlat={0:f}&mlon={1:f}#map={2:d}/{0:f}/{1:f}".format(nLatitude, nLongitude, zoomLevel)
+
+            # https://msdn.microsoft.com/en-us/library/dn217138.aspx
+            maptitle="title"
+            mapnotes="Some notes"
+            mapurl="a url"
+            mapphoto="a photo url"
+            # a = aerial, can also be r for road, h= aerial with labels
+            bingparams = "cp={0:f}~{1:f}&lvl={2:d}&style=r&sp=point.{0:f}_{1:f}_{3:s}_{4:s}_{5:s}_{6:s}".format(nLatitude, nLongitude, zoomLevel, maptitle, mapnotes, mapurl, mapphoto)
+            bingpinurl = "http://bing.com/maps/default.aspx?" + bingparams
+
+            propertiesDict['googleurl'] = gpinurl
             if verbose :
                 print("Latitude:", sLatitude, " = ", nLatitude)
                 print("Longitude:", sLongitude, " = ", nLongitude)
                 print("OSMaps Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C{2:d}".format(nLatitude, nLongitude, zoomLevel))  # No Pn
                 # Google Maps URL API doesn't seem to allow a Pin to be displayed at the lat/long coordinates at the same time as specifying a zoom and a map type
                 print("Google Link:", "https://www.google.com/maps/%40?api=1&map_action=map&center={0:f}%2C{1:f}&zoom={2:d}&basemap=satellite".format(nLatitude, nLongitude, zoomLevel)) # No pin
-                print("Google Link with Pin:", "https://www.google.com/maps/search/?api=1&query={0:f}%2C{1:f}&zoom=10".format(nLatitude, nLongitude))   # Pin
+                print("Google Link with Pin:", gpinurl)   # Pin
+                print("OSM Link with Pin:", osmpinurl)   # Pin
+                print("Bing Link with Pin:", bingpinurl)   # Pin
+
 
         if fromGPS and 6 in GPSTags :
             altitudeTuple = GPSTags[6]['value']
@@ -575,7 +595,7 @@ def summariseTags(propertiesDict, allTags, verbose) :
 ###########################################################################
 ##
 
-def processFile(filename, verbose=True) :
+def processFile(filename, verbose=False) :
 
     if verbose :
         print("Reading from:", filename)
