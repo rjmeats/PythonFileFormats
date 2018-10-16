@@ -127,13 +127,12 @@ def processExifSegment(info, segment) :
     continueLooking = True
     while(continueLooking) :
         newIFDinfo = []
-        for knownIFDname, d in dict.items() :            
+        for d in dict.values() :            
             for embeddedIFDtag, embeddedIFDname in knownEmbeddedIFDs().items() :
                 # This will re-search all IFDs each time through the loop, not just ones we've added last time
                 # around, so ignore embedded IFDs we've already picked up. (Assuming the only exist in one place.)
                 if embeddedIFDtag in d and embeddedIFDname not in dict:
                     IFDname = embeddedIFDname
-                    #print("Handling embedded IFD:", IFDname)
                     embeddedIFDOffset = d[embeddedIFDtag]['value']
                     embeddedIFDentries, nextIFDOffset = processIFD(TIFF, embeddedIFDOffset, byteAlignmentIndicator)
                     # Put info about embedded IFD onto a list, we can't put it directly in the main dictionary
@@ -475,9 +474,10 @@ def latLongAsStringNumber(NSEW, latLongTuples) :
         n = (degrees + (minutes / 60.0) + (seconds / 60.0 / 60.0) ) * multiplier
         return (s,n)
 
-def summariseTags(allTags) :
+def summariseTags(propertiesDict, allTags, verbose) :
 
-    print()
+    if verbose :
+        print()
 
     # Where was the image (photo) produced ?
     if 'GPS' in allTags :
@@ -507,19 +507,25 @@ def summariseTags(allTags) :
 
         if NS and latitude and EW and longitude :
             sLatitude, nLatitude = latLongAsStringNumber(NS, latitude)
-            print("Latitude:", sLatitude, " = ", nLatitude)
             sLongitude, nLongitude = latLongAsStringNumber(EW, longitude)
-            print("Longitude:", sLongitude, " = ", nLongitude)
             zoomLevel = 16
-            print("OSMaps Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C{2:d}".format(nLatitude, nLongitude, zoomLevel))  # No Pn
-            # Google Maps URL API doesn't seem to allow a Pin to be displayed at the lat/long coordinates at the same time as specifying a zoom and a map type
-            print("Google Link:", "https://www.google.com/maps/%40?api=1&map_action=map&center={0:f}%2C{1:f}&zoom={2:d}&basemap=satellite".format(nLatitude, nLongitude, zoomLevel)) # No pin
-            print("Google Link with Pin:", "https://www.google.com/maps/search/?api=1&query={0:f}%2C{1:f}&zoom=10".format(nLatitude, nLongitude))   # Pin
+            propertiesDict['latitude'] = nLatitude
+            propertiesDict['longitude'] = nLongitude
+            propertiesDict['fromGPS'] = fromGPS
+            if verbose :
+                print("Latitude:", sLatitude, " = ", nLatitude)
+                print("Longitude:", sLongitude, " = ", nLongitude)
+                print("OSMaps Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C{2:d}".format(nLatitude, nLongitude, zoomLevel))  # No Pn
+                # Google Maps URL API doesn't seem to allow a Pin to be displayed at the lat/long coordinates at the same time as specifying a zoom and a map type
+                print("Google Link:", "https://www.google.com/maps/%40?api=1&map_action=map&center={0:f}%2C{1:f}&zoom={2:d}&basemap=satellite".format(nLatitude, nLongitude, zoomLevel)) # No pin
+                print("Google Link with Pin:", "https://www.google.com/maps/search/?api=1&query={0:f}%2C{1:f}&zoom=10".format(nLatitude, nLongitude))   # Pin
 
         if fromGPS and 6 in GPSTags :
             altitudeTuple = GPSTags[6]['value']
-            altitude = altitudeTuple[0]/altitudeTuple[1]
-            print("Rough Altitude:", "{0:.0f} m".format(round(altitude, -2)))
+            altitude = round(altitudeTuple[0]/altitudeTuple[1], -2)
+            if verbose :
+                print("Rough Altitude:", "{0:.0f} m".format(altitude))
+            propertiesDict['altitude'] = altitude
 
         # for k,d in GPSTags.items() :
         #    print(k, d)
@@ -532,12 +538,23 @@ def summariseTags(allTags) :
         if 306 in IFD0Tags :
             timestamp = IFD0Tags[306]['value']
             if timestamp[0:4] != "0000" :
-                print("Timestamp:", IFD0Tags[306]['value'], "GMT")
+                if verbose :
+                    print("Timestamp:", IFD0Tags[306]['value'], "GMT")
+                propertiesDict['timestamp'] = timestamp
 
         if 256 in IFD0Tags and 257 in IFD0Tags :
-            print("Size:", IFD0Tags[256]['value'], " x ", IFD0Tags[257]['value'], "pixels")
+            columns = IFD0Tags[256]['value']
+            rows = IFD0Tags[257]['value']
+            if verbose: 
+                print("Size:", columns, " x ", rows, "pixels")
+            propertiesDict['columns'] = columns
+            propertiesDict['rows'] = rows
+
         if 271 in IFD0Tags :
-            print("Make:", IFD0Tags[271]['value'])
+            make = IFD0Tags[271]['value']
+            if verbose :
+                print("Make:", make)
+            propertiesDict['make'] = make
 
         # IFD1 = thumbnail
         # 256, 257, 259, 274, 282, 283, 296, 512, 514
@@ -558,9 +575,10 @@ def summariseTags(allTags) :
 ###########################################################################
 ##
 
-def processFile(filename) :
+def processFile(filename, verbose=True) :
 
-    print("Reading from:", filename)
+    if verbose :
+        print("Reading from:", filename)
 
     bytecount = 0
     aborted = False
@@ -672,19 +690,20 @@ def processFile(filename) :
             bytecount += len(trailingBytes)            
 
     # Summarise what we've found
-    for s in segmentsInfo :
-        print(s)
+    if verbose :
+        for s in segmentsInfo :
+            print(s)
 
-    if EOIFound and trailingBytes :
-        print("Found", len(trailingBytes), "unknown bytes after EOI marker:", *trailingBytes[0:10], "...")
+        if EOIFound and trailingBytes :
+            print("Found", len(trailingBytes), "unknown bytes after EOI marker:", *trailingBytes[0:10], "...")
 
     if not (SOIFound and EOIFound) :
-        print("*** Start/End of Image character(s) not found")
+        print("*** Start/End of Image character(s) not found in file:", filename)
 
-    if not aborted :
+    if aborted :
+        print("*** Aborted read of file:", filename)
+    elif verbose :
         print("Read all bytes:", bytecount, "bytes")
-    else :
-        print("*** Aborted read")
 
     allTags = {}
 
@@ -694,32 +713,44 @@ def processFile(filename) :
             appName = info['app']
             if appName == "Exif" :
                 Exifdict = processExifSegment(info, data)
-                print("Extracted these IFDs from the Exif segment:")
+                if verbose :
+                    print("Extracted these IFDs from the Exif segment:")
                 for n, d in Exifdict.items() :
-                    print("- ", n, ":", len(d), "item(s)")
+                    if verbose :
+                        print("- ", n, ":", len(d), "item(s)")
                     allTags[n] = d
             elif appName == "JFIF" :
                 JFIFdict = processJFIFSegment(info, data)
-                print("Extracted JFIF segment data:", len(JFIFdict), "item(s)")
+                if verbose :
+                    print("Extracted JFIF segment data:", len(JFIFdict), "item(s)")
                 allTags['JFIF'] = JFIFdict
             elif appName == "ICC_PROFILE" :
                 ICCdict = processICCProfileSegment(info, data)
-                print("Extracted ICC Profile segment data:", len(ICCdict), "item(s)")
+                if verbose :
+                    print("Extracted ICC Profile segment data:", len(ICCdict), "item(s)")
                 allTags['ICC'] = ICCdict
             else :
-                print("Not examining", appName, " data segment")
+                if verbose :
+                    print("Not examining", appName, " data segment")
 
+    propertiesDict = {}
+    propertiesDict['filename'] = filename
+    propertiesDict['bytes'] = bytecount
+    #propertiesDict['segments'] = segmentsInfo
+    summariseTags(propertiesDict, allTags, verbose)
 
-    summariseTags(allTags)
-
+    return propertiesDict
 #
 ####################################
 #
 
-if len(sys.argv) == 1 :
-    print("No filename command line argument provided")
-    exit()
+if __name__ == "__main__" :
 
-filename = sys.argv[1]
-processFile(filename)
+    if len(sys.argv) == 1 :
+        print("No filename command line argument provided")
+        exit()
 
+    filename = sys.argv[1]
+    mainProperties = processFile(filename, True)
+
+    # print(mainProperties)
