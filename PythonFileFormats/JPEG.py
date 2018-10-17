@@ -477,10 +477,7 @@ def latLongAsStringNumber(NSEW, latLongTuples, fromGPS) :
         n = round((degrees + (minutes / 60.0) + (seconds / 60.0 / 60.0) ) * multiplier, rounding)  
         return (s,n)
 
-def summariseTags(propertiesDict, allTags, verbose) :
-
-    if verbose :
-        print()
+def summariseTags(propertiesDict, allTags) :
 
     # Where was the image (photo) produced ?
     if 'GPS' in allTags :
@@ -511,40 +508,15 @@ def summariseTags(propertiesDict, allTags, verbose) :
         if NS and latitude and EW and longitude :
             sLatitude, nLatitude = latLongAsStringNumber(NS, latitude, fromGPS)
             sLongitude, nLongitude = latLongAsStringNumber(EW, longitude, fromGPS)
-            zoomLevel = 16
             propertiesDict['latitude'] = nLatitude
             propertiesDict['longitude'] = nLongitude
+            propertiesDict['latitudetext'] = sLatitude
+            propertiesDict['longitudetext'] = sLongitude
             propertiesDict['fromGPS'] = fromGPS
-            gpinurl = "https://www.google.com/maps/search/?api=1&query={0:f}%2C{1:f}&zoom={2:d}".format(nLatitude, nLongitude, zoomLevel)   # Pin
-            # https://wiki.openstreetmap.org/wiki/Browsing#Sharing_a_link_to_the_maps
-            osmpinurl = "https://www.openstreetmap.org/?&mlat={0:f}&mlon={1:f}#map={2:d}/{0:f}/{1:f}".format(nLatitude, nLongitude, zoomLevel)
-
-            # https://msdn.microsoft.com/en-us/library/dn217138.aspx
-            maptitle="title"
-            mapnotes="Some notes"
-            mapurl="a url"
-            mapphoto="a photo url"
-            # a = aerial, can also be r for road, h= aerial with labels
-            bingparams = "cp={0:f}~{1:f}&lvl={2:d}&style=r&sp=point.{0:f}_{1:f}_{3:s}_{4:s}_{5:s}_{6:s}".format(nLatitude, nLongitude, zoomLevel, maptitle, mapnotes, mapurl, mapphoto)
-            bingpinurl = "http://bing.com/maps/default.aspx?" + bingparams
-
-            propertiesDict['googleurl'] = gpinurl
-            if verbose :
-                print("Latitude:", sLatitude, " = ", nLatitude)
-                print("Longitude:", sLongitude, " = ", nLongitude)
-                print("OSMaps Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C{2:d}".format(nLatitude, nLongitude, zoomLevel))  # No Pn
-                # Google Maps URL API doesn't seem to allow a Pin to be displayed at the lat/long coordinates at the same time as specifying a zoom and a map type
-                print("Google Link:", "https://www.google.com/maps/%40?api=1&map_action=map&center={0:f}%2C{1:f}&zoom={2:d}&basemap=satellite".format(nLatitude, nLongitude, zoomLevel)) # No pin
-                print("Google Link with Pin:", gpinurl)   # Pin
-                print("OSM Link with Pin:", osmpinurl)   # Pin
-                print("Bing Link with Pin:", bingpinurl)   # Pin
-
 
         if fromGPS and 6 in GPSTags :
             altitudeTuple = GPSTags[6]['value']
             altitude = round(altitudeTuple[0]/altitudeTuple[1], -2)
-            if verbose :
-                print("Rough Altitude:", "{0:.0f} m".format(altitude))
             propertiesDict['altitude'] = altitude
 
         # for k,d in GPSTags.items() :
@@ -558,22 +530,16 @@ def summariseTags(propertiesDict, allTags, verbose) :
         if 306 in IFD0Tags :
             timestamp = IFD0Tags[306]['value']
             if timestamp[0:4] != "0000" :
-                if verbose :
-                    print("Timestamp:", IFD0Tags[306]['value'], "GMT")
                 propertiesDict['timestamp'] = timestamp
 
         if 256 in IFD0Tags and 257 in IFD0Tags :
             columns = IFD0Tags[256]['value']
             rows = IFD0Tags[257]['value']
-            if verbose: 
-                print("Size:", columns, " x ", rows, "pixels")
             propertiesDict['columns'] = columns
             propertiesDict['rows'] = rows
 
         if 271 in IFD0Tags :
             make = IFD0Tags[271]['value']
-            if verbose :
-                print("Make:", make)
             propertiesDict['make'] = make
 
         # IFD1 = thumbnail
@@ -590,6 +556,51 @@ def summariseTags(propertiesDict, allTags, verbose) :
         # 37378 aperture
         # 37385 flash
         # 37386 focal length mm
+
+def displayMainProperties(mainProperties) :
+
+    print()
+
+    if 'latitude' in mainProperties :
+        latitude = mainProperties['latitude']
+        longitude = mainProperties['longitude']
+        print("Latitude:", mainProperties['latitudetext'], " = ", latitude)
+        print("Longitude:", mainProperties['longitudetext'], " = ", longitude)
+
+        zoomLevel = 16
+
+        gpinurl = "https://www.google.com/maps/search/?api=1&query={0:f}%2C{1:f}&zoom={2:d}".format(latitude, longitude, zoomLevel)   # Pin
+        # https://wiki.openstreetmap.org/wiki/Browsing#Sharing_a_link_to_the_maps
+        osmpinurl = "https://www.openstreetmap.org/?&mlat={0:f}&mlon={1:f}#map={2:d}/{0:f}/{1:f}".format(latitude, longitude, zoomLevel)
+
+        # https://msdn.microsoft.com/en-us/library/dn217138.aspx
+        maptitle="title"
+        mapnotes="Some notes"
+        mapurl="a url"
+        mapphoto="a photo url"
+        # a = aerial, can also be r for road, h= aerial with labels
+        bingparams = "cp={0:f}~{1:f}&lvl={2:d}&style=r&sp=point.{0:f}_{1:f}_{3:s}_{4:s}_{5:s}_{6:s}".format(latitude, longitude, zoomLevel, 
+                        maptitle, mapnotes, mapurl, mapphoto)
+        bingpinurl = "http://bing.com/maps/default.aspx?" + bingparams
+
+        print("OSMaps Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C{2:d}".format(latitude, longitude, zoomLevel))  # No Pn
+        # Google Maps URL API doesn't seem to allow a Pin to be displayed at the lat/long coordinates at the same time as specifying a zoom and a map type
+        print("Google Link:", "https://www.google.com/maps/%40?api=1&map_action=map&center={0:f}%2C{1:f}&zoom={2:d}&basemap=satellite".format(latitude, longitude, zoomLevel)) # No pin
+        print("Google Link with Pin:", gpinurl)   # Pin
+        print("OSM Link with Pin:", osmpinurl)   # Pin
+        print("Bing Link with Pin:", bingpinurl)   # Pin
+
+    if 'altitude' in mainProperties :
+        print("Rough Altitude:", "{0:.0f} m".format(mainProperties['altitude']))
+
+    if 'timestamp' in mainProperties :
+        print("Timestamp:", mainProperties['timestamp'], "GMT")
+
+    if 'columns' in mainProperties :
+        print("Size:", mainProperties['columns'], "x", mainProperties['rows'], "pixels")
+
+    if 'make' in mainProperties :
+        print("Make:", mainProperties['make'])
 
 ##
 ###########################################################################
@@ -757,7 +768,7 @@ def processFile(filename, verbose=False) :
     propertiesDict['filename'] = filename
     propertiesDict['bytes'] = bytecount
     #propertiesDict['segments'] = segmentsInfo
-    summariseTags(propertiesDict, allTags, verbose)
+    summariseTags(propertiesDict, allTags)
 
     return propertiesDict
 #
@@ -772,5 +783,6 @@ if __name__ == "__main__" :
 
     filename = sys.argv[1]
     mainProperties = processFile(filename, True)
+    displayMainProperties(mainProperties)
 
     # print(mainProperties)
