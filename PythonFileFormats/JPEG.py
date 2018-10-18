@@ -567,11 +567,20 @@ def displayMainProperties(mainProperties) :
         print("Latitude:", mainProperties['latitudetext'], " = ", latitude)
         print("Longitude:", mainProperties['longitudetext'], " = ", longitude)
 
+        # Maps seem to use a common zoom level domain. 
+        # https://wiki.openstreetmap.org/wiki/Zoom_levels
         zoomLevel = 16
 
+        print("OSMaps Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C{2:d}".format(latitude, longitude, zoomLevel))  # No Pn
+
+        # Google Maps URL API doesn't seem to allow a Pin to be displayed at the lat/long coordinates at the same time as specifying a zoom and a map type
         gpinurl = "https://www.google.com/maps/search/?api=1&query={0:f}%2C{1:f}&zoom={2:d}".format(latitude, longitude, zoomLevel)   # Pin
+        print("Google Link:", "https://www.google.com/maps/%40?api=1&map_action=map&center={0:f}%2C{1:f}&zoom={2:d}&basemap=satellite".format(latitude, longitude, zoomLevel)) # No pin
+        print("Google Link with Pin:", gpinurl)   # Pin
+
         # https://wiki.openstreetmap.org/wiki/Browsing#Sharing_a_link_to_the_maps
         osmpinurl = "https://www.openstreetmap.org/?&mlat={0:f}&mlon={1:f}#map={2:d}/{0:f}/{1:f}".format(latitude, longitude, zoomLevel)
+        print("OSM Link with Pin:", osmpinurl)   # Pin
 
         # https://msdn.microsoft.com/en-us/library/dn217138.aspx
         maptitle="title"
@@ -580,14 +589,9 @@ def displayMainProperties(mainProperties) :
         mapphoto="a photo url"
         # a = aerial, can also be r for road, h= aerial with labels
         bingparams = "cp={0:f}~{1:f}&lvl={2:d}&style=r&sp=point.{0:f}_{1:f}_{3:s}_{4:s}_{5:s}_{6:s}".format(latitude, longitude, zoomLevel, 
-                        maptitle, mapnotes, mapurl, mapphoto)
+                            maptitle, mapnotes, mapurl, mapphoto)
         bingpinurl = "http://bing.com/maps/default.aspx?" + bingparams
 
-        print("OSMaps Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C{2:d}".format(latitude, longitude, zoomLevel))  # No Pn
-        # Google Maps URL API doesn't seem to allow a Pin to be displayed at the lat/long coordinates at the same time as specifying a zoom and a map type
-        print("Google Link:", "https://www.google.com/maps/%40?api=1&map_action=map&center={0:f}%2C{1:f}&zoom={2:d}&basemap=satellite".format(latitude, longitude, zoomLevel)) # No pin
-        print("Google Link with Pin:", gpinurl)   # Pin
-        print("OSM Link with Pin:", osmpinurl)   # Pin
         print("Bing Link with Pin:", bingpinurl)   # Pin
 
     if 'altitude' in mainProperties :
@@ -775,6 +779,10 @@ def processFile(filename, verbose=False) :
 ####################################
 #
 
+def main(filename) :
+    mainProperties = processFile(filename, True)
+    displayMainProperties(mainProperties)
+
 if __name__ == "__main__" :
 
     if len(sys.argv) == 1 :
@@ -782,7 +790,4 @@ if __name__ == "__main__" :
         exit()
 
     filename = sys.argv[1]
-    mainProperties = processFile(filename, True)
-    displayMainProperties(mainProperties)
-
-    # print(mainProperties)
+    main(filename)
