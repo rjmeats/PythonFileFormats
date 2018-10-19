@@ -1,4 +1,5 @@
 import sys
+import os
 
 
 # Convert a byte array to an unsigned integer
@@ -15,8 +16,11 @@ def bytesToInt(bytes, alignmentIndicator, signed=False) :
     return i
 
 def bytesToASCIIString(bytes) :
+
+    if len(bytes) == 0 :
+        return ""
     # Remove trailing null used in IFD string elements
-    if bytes[-1] == 0x00 :
+    elif bytes[-1] == 0x00 :
         bytes = bytes[0:len(bytes)-1]
     return bytes.decode()
 
@@ -26,6 +30,9 @@ def getAppSegmentIdentifier(segment) :
     while n < len(segment) and segment[n] != 0x00 :
         n += 1
 
+#    if n == 0 :
+#        print("*** Empty Segment identifier: ", len(segment), segment)
+#        return ""
     return bytesToASCIIString(segment[0:n])
 
 ##
@@ -70,6 +77,11 @@ def readEntropyCodedDataSegment(f) :
                 segmentLength += 2
                 segmentData.append(dataByte)
                 segmentData.append(nextDataByte)
+            elif nextDataByte >= 0xD0 and nextDataByte <= 0xD7 :
+                # An RST Restart marker within the encoded data segment, keeping going
+                segmentLength += 2
+                segmentData.append(dataByte)
+                segmentData.append(nextDataByte)
             else :
                 # The <FF> is not part of the data, it is the start of the next segment
                 nextSegmentMarkerBytes = bytearray(2)
@@ -91,7 +103,7 @@ def processExifSegment(info, segment) :
     ExifIdentifierLength = 6
     Exif = "Exif"
     if not (segment[0] == Exif.encode()[0] and segment[1] == Exif.encode()[1] and segment[2] == Exif.encode()[2] and segment[3] == Exif.encode()[3] and segment[4] == 0 and segment[5] == 0) :
-        print("*** Exif segment header format not as expected:", segment[0:10])
+        print("*** Exif segment header format not as expected:", segment[0:10], file=sys.stderr)
         return
 
     # The rest is TIFF format content
@@ -139,7 +151,7 @@ def processExifSegment(info, segment) :
                     # while looping over the dictionary,
                     newIFDinfo.append( (embeddedIFDname, embeddedIFDentries) )
                     if nextIFDOffset != 0000 :
-                        print("*** - unexpected next IFD offset in IFD", embeddedIFDname)
+                        print("*** - unexpected next IFD offset in IFD", embeddedIFDname, file=sys.stderr)
         # Can now add the new IFD(s) to the main dictionary
         for additionalIFDname, IFDentries in newIFDinfo :
             dict[additionalIFDname] = IFDentries
@@ -304,7 +316,7 @@ def processIFDElement(elementNo, element, TIFF, byteAlignmentIndicator) :
 
     if not implemented :
         entry['unhandled'] = True
-        print("*** IFD data type not implemented: IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, ", num:", componentCount, ", bytes:", dataBytes)
+        print("*** IFD data type not implemented: IFD item no:", elementNo, "tag:", tag, ", dataFormat:", dataFormat, ", num:", componentCount, ", bytes:", dataBytes, file=sys.stderr)
 
     return entry
 
@@ -316,11 +328,11 @@ def processJFIFSegment(info, segment) :
     
     JFIF = "JFIF"
     if not (segment[0] == JFIF.encode()[0] and segment[1] == JFIF.encode()[1] and segment[2] == JFIF.encode()[2] and segment[3] == JFIF.encode()[3] and segment[4] == 0) :
-        print("*** JFIF segment header format not as expected:", segment[0:10])
+        print("*** JFIF segment header format not as expected:", segment[0:10], file=sys.stderr)
         return
 
     if len(segment) < 14 :
-        print("*** JFIF segment header size not as expected:", len(segment))
+        print("*** JFIF segment header size not as expected:", len(segment), file=sys.stderr)
         return
 
     majorversion = segment[5]
@@ -332,7 +344,7 @@ def processJFIFSegment(info, segment) :
     Ythumbnail = segment[13]
 
     if len(segment) > 14:
-        print("*** JFIF segment header - ignoring data beyond first 14 bytes", len(segment))
+        print("*** JFIF segment header - ignoring data beyond first 14 bytes", len(segment), file=sys.stderr)
 
     dict = {}
     dict['majorversion'] = majorversion
@@ -368,7 +380,7 @@ def processICCProfileSegment(info, segment) :
     # ???? Check profile string is present 
 
     if not (thisChunkNo == 1 and totalChunks == 1) :
-        print("*** ICC profile has more than one chunk:", thisChunkNo, totalChunks)
+        print("*** ICC profile has more than one chunk:", thisChunkNo, totalChunks, file=sys.stderr)
     
     mainSegmentOffset = len(ICC_ProfileString)+3 
     mainSegment = segment[mainSegmentOffset:]
@@ -455,11 +467,11 @@ def latLongAsStringNumber(NSEW, latLongTuples, fromGPS) :
     n = 0
     # Check format
     if not NSEW in ["N", "S", "E", "W"] :
-        print("*** Unexpected direction indicator:", NSEW)
+        print("*** Unexpected direction indicator:", NSEW, file=sys.stderr)
     elif len(latLongTuples) != 3 :
-        print("*** Unexpected latitude/longitude value:", latLongTuples)
+        print("*** Unexpected latitude/longitude value:", latLongTuples, file=sys.stderr)
     elif (latLongTuples[0][1] != 1) or (latLongTuples[1][1] != 1) :
-        print("*** Unexpected latitude/longitude value:", latLongTuples)
+        print("*** Unexpected latitude/longitude value:", latLongTuples, file=sys.stderr)
     else :
         degrees = latLongTuples[0][0] 
         minutes = latLongTuples[1][0]
@@ -488,7 +500,7 @@ def summariseTags(propertiesDict, allTags) :
         if 27 in GPSTags:
             processingMethod = GPSTags[27]['value']
             if processingMethod != "GPS" :
-                print("*** Processing method is not GPS:", processingMethod)
+                print("*** Processing method is not GPS:", processingMethod, file=sys.stderr)
             else :
                 fromGPS = True
 
@@ -547,6 +559,17 @@ def summariseTags(propertiesDict, allTags) :
         # 259 6 = thumbnail uses JPEG compression
         # 513, 514 = offset/length of thumbnail JPEG
 
+    if 'Exif' in allTags :
+        ExifTags = allTags['Exif']
+
+        # Alternative dimension source
+        if not 'columns' in propertiesDict:
+            if 40962 in ExifTags and 40963 in ExifTags :
+                columns = ExifTags[40962]['value']
+                rows = ExifTags[40963]['value']
+                propertiesDict['columns'] = columns
+                propertiesDict['rows'] = rows
+
         # Exif segment includes
         # 33434 Exposure
         # 33437 F no
@@ -556,6 +579,7 @@ def summariseTags(propertiesDict, allTags) :
         # 37378 aperture
         # 37385 flash
         # 37386 focal length mm
+
 
 def displayMainProperties(mainProperties) :
 
@@ -610,7 +634,15 @@ def displayMainProperties(mainProperties) :
 ###########################################################################
 ##
 
-def processFile(filename, verbose=False) :
+def displayAllTags(allTags) :
+    print("#############################################")
+    for n,dict in allTags.items() :
+        print(n)
+        for k,v in dict.items() :
+            print(k, v)
+    print("#############################################")
+
+def processFile(filename, verbose=False, veryVerbose=False) :
 
     if verbose :
         print("Reading from:", filename)
@@ -637,12 +669,12 @@ def processFile(filename, verbose=False) :
             # - we don't expect anything after the EOI marker
 
             if len(bytes) != 2 :
-                print("*** [", bytecount, "]", "Unexpected bytes length: ", len(bytes), ", contents:", bytes, )
+                print("*** [", bytecount, "]", "Unexpected bytes length: ", len(bytes), ", contents:", bytes, file=sys.stderr)
                 aborted = True
                 break
 
             if bytes[0] != 0xFF :
-                print("*** [", bytecount, "]", "Expected <FF> but found : ", bytes[0])
+                print("*** [", bytecount, "]", "Expected <FF> but found : ", bytes[0], file=sys.stderr)
                 aborted = True
                 break
 
@@ -675,6 +707,9 @@ def processFile(filename, verbose=False) :
                 segmentType = 'APP' + str(markerByteDetail-0xE0)
                 segmentLength, segmentData = readDataSegment(f)
                 appSegmentIdentifier = getAppSegmentIdentifier(segmentData)
+                if not appSegmentIdentifier :
+                    appSegmentIdentifier = "unnamed"
+                    #print("Unnamed APP segment:", segmentLength, segmentData)   # ????
             elif markerByteDetail == 0xDB :
                 segmentType = 'DQT'
                 segmentLength, segmentData = readDataSegment(f)
@@ -691,11 +726,23 @@ def processFile(filename, verbose=False) :
                 segmentType = 'SOS'
                 segmentLength, segmentData, nextBytes = readEntropyCodedDataSegment(f)
                 bytes = nextBytes
+            elif markerByteDetail == 0xDD :
+                segmentType = 'DRI'
+                segmentLength, segmentData = readDataSegment(f)
+            elif markerByteDetail >= 0xD0 and markerByteDetail <= 0xD7 :
+                # RST markers seem to be just inserted within runs of Coded data, and so are
+                # handled by the readEntropyCodedDataSegment method, don't expect to detect
+                # them here.
+                segmentType = 'RST?'
+                segmentLength = 0
+                print("*** Found unexpected RST marker:", markerByteDetail, " at: ", bytecount-2, file=sys.stderr)
+                aborted = True
+                break
             else :
                 # DRI ? RSTn ? COM ?
                 segmentType = '????'
                 segmentLength = 0
-                print("*** Found unhandled segment marker:", bytes, " at: ", bytecount-2)
+                print("*** Found unhandled segment marker:", markerByteDetail, " at: ", bytecount-2, file=sys.stderr)
                 aborted = True
                 break
 
@@ -733,10 +780,10 @@ def processFile(filename, verbose=False) :
             print("Found", len(trailingBytes), "unknown bytes after EOI marker:", *trailingBytes[0:10], "...")
 
     if not (SOIFound and EOIFound) :
-        print("*** Start/End of Image character(s) not found in file:", filename)
+        print("*** Start/End of Image character(s) not found in file:", filename, file=sys.stderr)
 
     if aborted :
-        print("*** Aborted read of file:", filename)
+        print("*** Aborted read of file:", filename, file=sys.stderr)
     elif verbose :
         print("Read all bytes:", bytecount, "bytes")
 
@@ -764,15 +811,20 @@ def processFile(filename, verbose=False) :
                 if verbose :
                     print("Extracted ICC Profile segment data:", len(ICCdict), "item(s)")
                 allTags['ICC'] = ICCdict
+            elif appName == "" :
+                if verbose :
+                    print("Found unnamed segment data:", info, data)
             else :
                 if verbose :
-                    print("Not examining", appName, " data segment")
+                    print("Not examining", appName, "app data segment")
 
     propertiesDict = {}
     propertiesDict['filename'] = filename
     propertiesDict['bytes'] = bytecount
-    #propertiesDict['segments'] = segmentsInfo
     summariseTags(propertiesDict, allTags)
+
+    if veryVerbose :
+        displayAllTags(allTags)
 
     return propertiesDict
 #
@@ -780,7 +832,13 @@ def processFile(filename, verbose=False) :
 #
 
 def main(filename) :
-    mainProperties = processFile(filename, True)
+
+    if not os.path.isfile(filename) :
+        print("***",  filename, "is not a file", file=sys.stderr)
+        return
+
+    veryVerbose = False  # For debugging
+    mainProperties = processFile(filename, True, veryVerbose)
     displayMainProperties(mainProperties)
 
 if __name__ == "__main__" :
