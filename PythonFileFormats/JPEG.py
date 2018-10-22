@@ -621,17 +621,11 @@ def displayMainProperties(mainProperties) :
         # https://wiki.openstreetmap.org/wiki/Zoom_levels
         zoomLevel = 16
 
-        print("OSMaps Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C{2:d}".format(latitude, longitude, zoomLevel))  # No Pn
-        print("OSMaps Link:", MapURLs.urlForOSMaps(latitude, longitude, zoomLevel))
-
-        # Google Maps URL API doesn't seem to allow a Pin to be displayed at the lat/long coordinates at the same time as specifying a zoom and a map type
-        gpinurl = "https://www.google.com/maps/search/?api=1&query={0:f}%2C{1:f}&zoom={2:d}".format(latitude, longitude, zoomLevel)   # Pin
-        print("Google Link:", "https://www.google.com/maps/%40?api=1&map_action=map&center={0:f}%2C{1:f}&zoom={2:d}&basemap=satellite".format(latitude, longitude, zoomLevel)) # No pin
-        print("Google Link with Pin:", gpinurl)   # Pin
-
-        # https://wiki.openstreetmap.org/wiki/Browsing#Sharing_a_link_to_the_maps
-        osmpinurl = "https://www.openstreetmap.org/?&mlat={0:f}&mlon={1:f}#map={2:d}/{0:f}/{1:f}".format(latitude, longitude, zoomLevel)
-        print("OSM Link with Pin:", osmpinurl)   # Pin
+        print("OS Maps URL:", MapURLs.urlForOrdnanceSurveyMaps(latitude, longitude, zoomLevel))
+        print("OpenStreetMap URL:", MapURLs.urlForOpenStreetMaps(latitude, longitude, zoomLevel))
+        print("Google Maps URL (with pin):", MapURLs.urlForGoogleMaps(latitude, longitude, zoomLevel))
+        print("Google Maps URL (satellite):", MapURLs.urlForGoogleMaps2(latitude, longitude, zoomLevel, "satellite"))
+        print("Google Maps URL (street view):", MapURLs.urlForGoogleMapsStreetView(latitude, longitude))
 
         # https://msdn.microsoft.com/en-us/library/dn217138.aspx
         maptitle="title"
