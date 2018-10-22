@@ -1,6 +1,7 @@
 import sys
 import os
 
+import MapURLs  # My module for providing mapping URLs
 
 # Convert a byte array to an unsigned integer
 def bytesToInt(bytes, alignmentIndicator, signed=False) :    
@@ -621,6 +622,7 @@ def displayMainProperties(mainProperties) :
         zoomLevel = 16
 
         print("OSMaps Link:", "https://osmaps.ordnancesurvey.co.uk/{0:f}%2C{1:f}%2C{2:d}".format(latitude, longitude, zoomLevel))  # No Pn
+        print("OSMaps Link:", MapURLs.urlForOSMaps(latitude, longitude, zoomLevel))
 
         # Google Maps URL API doesn't seem to allow a Pin to be displayed at the lat/long coordinates at the same time as specifying a zoom and a map type
         gpinurl = "https://www.google.com/maps/search/?api=1&query={0:f}%2C{1:f}&zoom={2:d}".format(latitude, longitude, zoomLevel)   # Pin
