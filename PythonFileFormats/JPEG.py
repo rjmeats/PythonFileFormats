@@ -626,18 +626,7 @@ def displayMainProperties(mainProperties) :
         print("Google Maps URL (with pin):", MapURLs.urlForGoogleMaps(latitude, longitude, zoomLevel))
         print("Google Maps URL (satellite):", MapURLs.urlForGoogleMaps2(latitude, longitude, zoomLevel, "satellite"))
         print("Google Maps URL (street view):", MapURLs.urlForGoogleMapsStreetView(latitude, longitude))
-
-        # https://msdn.microsoft.com/en-us/library/dn217138.aspx
-        maptitle="title"
-        mapnotes="Some notes"
-        mapurl="a url"
-        mapphoto="a photo url"
-        # a = aerial, can also be r for road, h= aerial with labels
-        bingparams = "cp={0:f}~{1:f}&lvl={2:d}&style=r&sp=point.{0:f}_{1:f}_{3:s}_{4:s}_{5:s}_{6:s}".format(latitude, longitude, zoomLevel, 
-                            maptitle, mapnotes, mapurl, mapphoto)
-        bingpinurl = "http://bing.com/maps/default.aspx?" + bingparams
-
-        print("Bing Link with Pin:", bingpinurl)   # Pin
+        print("Bing Maps URL (aerial view):", MapURLs.urlForBingMaps(latitude, longitude, zoomLevel, "a"))
 
     if 'altitude' in mainProperties :
         print("Rough Altitude:", "{0:.0f} m".format(mainProperties['altitude']))
