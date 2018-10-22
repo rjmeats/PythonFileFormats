@@ -22,7 +22,14 @@ def bytesToASCIIString(bytes) :
     # Remove trailing null used in IFD string elements
     elif bytes[-1] == 0x00 :
         bytes = bytes[0:len(bytes)-1]
-    return bytes.decode()
+
+    try :
+        s = bytes.decode()
+    except Exception as e :
+        # Not an ASCII string
+        s = ""
+
+    return s
 
 # Extract first n bytes up to a 0 byte, expect this to be an ASCII string identifying the type of App Segment, e.g. "Exif"
 def getAppSegmentIdentifier(segment) :
@@ -489,7 +496,7 @@ def latLongAsStringNumber(NSEW, latLongTuples, fromGPS) :
         n = round((degrees + (minutes / 60.0) + (seconds / 60.0 / 60.0) ) * multiplier, rounding)  
         return (s,n)
 
-def summariseTags(propertiesDict, allTags) :
+def summariseTags(propertiesDict, allTags, verbose) :
 
     # Where was the image (photo) produced ?
     if 'GPS' in allTags :
@@ -500,7 +507,9 @@ def summariseTags(propertiesDict, allTags) :
         if 27 in GPSTags:
             processingMethod = GPSTags[27]['value']
             if processingMethod != "GPS" :
-                print("*** Processing method is not GPS:", processingMethod, file=sys.stderr)
+                fromGPS = False
+                if verbose :
+                    print("*** Processing method is not GPS:", processingMethod, file=sys.stderr)
             else :
                 fromGPS = True
 
@@ -554,6 +563,14 @@ def summariseTags(propertiesDict, allTags) :
             make = IFD0Tags[271]['value']
             propertiesDict['make'] = make
 
+        if 272 in IFD0Tags :
+            model = IFD0Tags[272]['value']
+            propertiesDict['model'] = model
+
+        if 305 in IFD0Tags :
+            software = IFD0Tags[305]['value']
+            propertiesDict['software'] = software
+
         # IFD1 = thumbnail
         # 256, 257, 259, 274, 282, 283, 296, 512, 514
         # 259 6 = thumbnail uses JPEG compression
@@ -569,6 +586,14 @@ def summariseTags(propertiesDict, allTags) :
                 rows = ExifTags[40963]['value']
                 propertiesDict['columns'] = columns
                 propertiesDict['rows'] = rows
+
+        # Alternative timestamp field
+        if not 'timestamp' in propertiesDict :
+            if 36867 in ExifTags :
+                timestamp = ExifTags[36867]['value']
+                if timestamp[0:4] != "0000" :
+                    pass
+                    propertiesDict['timestamp'] = timestamp
 
         # Exif segment includes
         # 33434 Exposure
@@ -630,6 +655,11 @@ def displayMainProperties(mainProperties) :
     if 'make' in mainProperties :
         print("Make:", mainProperties['make'])
 
+    if 'model' in mainProperties :
+        print("Model:", mainProperties['model'])
+
+    if 'software' in mainProperties :
+        print("Software:", mainProperties['software'])
 ##
 ###########################################################################
 ##
@@ -639,6 +669,7 @@ def displayAllTags(allTags) :
     for n,dict in allTags.items() :
         print(n)
         for k,v in dict.items() :
+            #print(k, v)
             print(k, v)
     print("#############################################")
 
@@ -814,6 +845,12 @@ def processFile(filename, verbose=False, veryVerbose=False) :
             elif appName == "" :
                 if verbose :
                     print("Found unnamed segment data:", info, data)
+            elif appName == "http://ns.adobe.com/xap/1.0/" :
+                # Contains XML, probably https://wwwimages2.adobe.com/content/dam/acom/en/devnet/xmp/pdfs/XMP%20SDK%20Release%20cc-2016-08/XMPSpecificationPart1.pdf
+                # Possibly including <MicrosoftPhoto:DateAcquired>2013-06-23T12:01:02.200</MicrosoftPhoto:DateAcquired>
+                if verbose :
+                    print("Not examining", appName, "app data segment")
+                    print(info, data)
             else :
                 if verbose :
                     print("Not examining", appName, "app data segment")
@@ -821,7 +858,7 @@ def processFile(filename, verbose=False, veryVerbose=False) :
     propertiesDict = {}
     propertiesDict['filename'] = filename
     propertiesDict['bytes'] = bytecount
-    summariseTags(propertiesDict, allTags)
+    summariseTags(propertiesDict, allTags, verbose)
 
     if veryVerbose :
         displayAllTags(allTags)
@@ -837,7 +874,7 @@ def main(filename) :
         print("***",  filename, "is not a file", file=sys.stderr)
         return
 
-    veryVerbose = False  # For debugging
+    veryVerbose = True  # For debugging
     mainProperties = processFile(filename, True, veryVerbose)
     displayMainProperties(mainProperties)
 
