@@ -593,8 +593,14 @@ def summariseTags(propertiesDict, allTags, verbose) :
             if 36867 in ExifTags :
                 timestamp = ExifTags[36867]['value']
                 if timestamp[0:4] != "0000" :
-                    pass
                     propertiesDict['timestamp'] = timestamp
+
+        if 'timestamp' in propertiesDict :
+            # Replace colons in date part with hyphen: 2018:09:16 11:21:18  =>  2018-09-16 11:21:18
+            # Can't change an immutable string so have to create another one
+            if timestamp[4] == ':' and timestamp[7] == ':' :
+                modifiedTimeStamp = "{0:s}-{1:s}-{2:s}".format(timestamp[:4], timestamp[5:7], timestamp[8:])
+                propertiesDict['timestamp'] = modifiedTimeStamp
 
         # Exif segment includes
         # 33434 Exposure
@@ -859,7 +865,7 @@ def main(filename) :
         print("***",  filename, "is not a file", file=sys.stderr)
         return
 
-    veryVerbose = True  # For debugging
+    veryVerbose = False  # For debugging
     mainProperties = processFile(filename, True, veryVerbose)
     displayMainProperties(mainProperties)
 
